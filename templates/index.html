@@ -63,6 +63,14 @@
             color: white;
         }
 
+        .message.system {
+            margin: 10px auto;
+            text-align: center;
+            background-color: transparent;
+            color: var(--text-color);
+            font-style: italic;
+        }
+
         /* Input and Button Container */
         #input-container {
             display: flex;
@@ -181,35 +189,86 @@
             chat.appendChild(messageElement);
         });
 
-        // If username is cached, skip the modal
-        if (username) {
+        // Scroll to the bottom of the chat after loading messages
+        chat.scrollTop = chat.scrollHeight;
+
+        // If username is not set, show the modal
+        if (!username) {
+            usernameModal.style.display = 'flex';
+        } else {
             usernameModal.style.display = 'none';
             messageInput.disabled = false;
             changeUsernameButton.disabled = false;
-            socket.emit('set_username', username);  // Notify server of cached username
         }
 
-        // Prompt for username
-        usernameSubmit.addEventListener('click', () => {
-            const newUsername = usernameInput.value.trim();
-            if (newUsername) {
+        // Function to check if username is set
+        const checkUsername = () => {
+            const storedUsername = localStorage.getItem('username');
+            if (!storedUsername) {
+                usernameModal.style.display = 'flex';
+                messageInput.disabled = true;
+                changeUsernameButton.disabled = true;
+                return false;
+            }
+            return true;
+        };
+
+        // Function to show the username modal
+        const showUsernameModal = (title, buttonText, callback) => {
+            const modalTitle = document.querySelector('#username-form h2');
+            const modalButton = document.querySelector('#username-submit');
+            modalTitle.textContent = title;
+            modalButton.textContent = buttonText;
+
+            usernameModal.style.display = 'flex';
+
+            const handleSubmit = () => {
+                const newUsername = usernameInput.value.trim();
+                if (newUsername) {
+                    callback(newUsername);
+                    usernameModal.style.display = 'none';
+                    usernameInput.value = '';  // Clear input field
+                }
+            };
+
+            usernameSubmit.onclick = handleSubmit;
+            usernameInput.onkeypress = (e) => {
+                if (e.key === 'Enter') handleSubmit();
+            };
+        };
+
+        // Prompt for initial username
+        if (!username) {
+            showUsernameModal('Enter Your Username', 'Join Chat', (newUsername) => {
                 username = newUsername;
                 localStorage.setItem('username', username);  // Save username to cache
                 socket.emit('set_username', username);  // Send username to the server
-                usernameModal.style.display = 'none';  // Hide the modal
                 messageInput.disabled = false;  // Enable the message input
                 changeUsernameButton.disabled = false;  // Enable the change username button
-            }
-        });
+            });
+        }
 
         // Change username
         changeUsernameButton.addEventListener('click', () => {
-            const newUsername = prompt('Enter a new username:');
-            if (newUsername && newUsername.trim()) {
-                username = newUsername.trim();
+            if (!checkUsername()) return;  // Ensure username is set
+            showUsernameModal('Change Your Username', 'Change Username', (newUsername) => {
+                const oldUsername = username;
+                username = newUsername;
                 localStorage.setItem('username', username);  // Update username in cache
                 socket.emit('set_username', username);  // Notify server of new username
-            }
+
+                // Display a system message for the name change
+                const systemMessage = `${oldUsername} changed their name to ${username}`;
+                const messageElement = document.createElement('div');
+                messageElement.className = 'message system';
+                messageElement.textContent = systemMessage;
+                chat.appendChild(messageElement);
+                chat.scrollTop = chat.scrollHeight;  // Auto-scroll to the latest message
+
+                // Save system message to cache
+                cachedMessages.push(systemMessage);
+                localStorage.setItem('messages', JSON.stringify(cachedMessages));
+            });
         });
 
         // Toggle light/dark mode
@@ -227,13 +286,14 @@
         // Send message when user presses Enter
         messageInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
+                if (!checkUsername()) return;  // Ensure username is set
                 const message = this.value;
                 if (message.trim()) {
-                    const formattedMessage = `${username}: ${message}`;
-                    socket.send(formattedMessage);  // Send message to server
+                    socket.send(message);  // Send message to server (without username)
                     this.value = '';  // Clear input field
 
-                    // Save message to cache
+                    // Save message to cache (with username)
+                    const formattedMessage = `${username}: ${message}`;
                     cachedMessages.push(formattedMessage);
                     localStorage.setItem('messages', JSON.stringify(cachedMessages));
                 }
