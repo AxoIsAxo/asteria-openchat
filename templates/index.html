@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* General Styles */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Light/Dark Mode Variables */
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #333333;
+            --message-bg: #f1f1f1;
+            --message-text: #333333;
+            --input-bg: #ffffff;
+            --input-border: #cccccc;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1e1e1e;
+            --text-color: #f1f1f1;
+            --message-bg: #333333;
+            --message-text: #f1f1f1;
+            --input-bg: #2d2d2d;
+            --input-border: #444444;
+        }
+
+        /* Chat Container */
+        #chat {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            border-bottom: 1px solid var(--input-border);
+        }
+
+        /* Message Boxes */
+        .message {
+            max-width: 70%;
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 15px;
+            background-color: var(--message-bg);
+            color: var(--message-text);
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            margin-left: auto;
+            background-color: #007bff;
+            color: white;
+        }
+
+        /* Input and Button Container */
+        #input-container {
+            display: flex;
+            padding: 10px;
+            background-color: var(--bg-color);
+            border-top: 1px solid var(--input-border);
+        }
+
+        #message {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--input-border);
+            border-radius: 5px;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        #change-username, #theme-toggle {
+            margin-left: 10px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+
+        #theme-toggle {
+            background-color: #6c757d;
+        }
+
+        /* Username Modal */
+        #username-modal {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        #username-form {
+            background: var(--bg-color);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #username-form h2 {
+            margin-bottom: 15px;
+            color: var(--text-color);
+        }
+
+        #username-form input {
+            padding: 10px;
+            border: 1px solid var(--input-border);
+            border-radius: 5px;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        #username-form button {
+            margin-top: 10px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <!-- Username Modal -->
+    <div id="username-modal">
+        <div id="username-form">
+            <h2>Enter Your Username</h2>
+            <input type="text" id="username-input" placeholder="Username">
+            <button id="username-submit">Join Chat</button>
+        </div>
+    </div>
+
+    <!-- Chat Interface -->
+    <div id="chat"></div>
+    <div id="input-container">
+        <input type="text" id="message" placeholder="Type your message here..." disabled>
+        <button id="change-username" disabled>Change Username</button>
+        <button id="theme-toggle">Toggle Dark Mode</button>
+    </div>
+
+    <script>
+        const socket = io();
+
+        // Get DOM elements
+        const usernameModal = document.getElementById('username-modal');
+        const usernameInput = document.getElementById('username-input');
+        const usernameSubmit = document.getElementById('username-submit');
+        const chat = document.getElementById('chat');
+        const messageInput = document.getElementById('message');
+        const changeUsernameButton = document.getElementById('change-username');
+        const themeToggleButton = document.getElementById('theme-toggle');
+
+        // Load cached messages and username
+        let username = localStorage.getItem('username') || '';
+        const cachedMessages = JSON.parse(localStorage.getItem('messages')) || [];
+
+        // Display cached messages
+        cachedMessages.forEach(msg => {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            messageElement.textContent = msg;
+            chat.appendChild(messageElement);
+        });
+
+        // If username is cached, skip the modal
+        if (username) {
+            usernameModal.style.display = 'none';
+            messageInput.disabled = false;
+            changeUsernameButton.disabled = false;
+            socket.emit('set_username', username);  // Notify server of cached username
+        }
+
+        // Prompt for username
+        usernameSubmit.addEventListener('click', () => {
+            const newUsername = usernameInput.value.trim();
+            if (newUsername) {
+                username = newUsername;
+                localStorage.setItem('username', username);  // Save username to cache
+                socket.emit('set_username', username);  // Send username to the server
+                usernameModal.style.display = 'none';  // Hide the modal
+                messageInput.disabled = false;  // Enable the message input
+                changeUsernameButton.disabled = false;  // Enable the change username button
+            }
+        });
+
+        // Change username
+        changeUsernameButton.addEventListener('click', () => {
+            const newUsername = prompt('Enter a new username:');
+            if (newUsername && newUsername.trim()) {
+                username = newUsername.trim();
+                localStorage.setItem('username', username);  // Update username in cache
+                socket.emit('set_username', username);  // Notify server of new username
+            }
+        });
+
+        // Toggle light/dark mode
+        themeToggleButton.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);  // Save theme preference
+        });
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+
+        // Send message when user presses Enter
+        messageInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                const message = this.value;
+                if (message.trim()) {
+                    const formattedMessage = `${username}: ${message}`;
+                    socket.send(formattedMessage);  // Send message to server
+                    this.value = '';  // Clear input field
+
+                    // Save message to cache
+                    cachedMessages.push(formattedMessage);
+                    localStorage.setItem('messages', JSON.stringify(cachedMessages));
+                }
+            }
+        });
+
+        // Receive messages from server
+        socket.on('message', function (msg) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            messageElement.textContent = msg;
+            chat.appendChild(messageElement);
+            chat.scrollTop = chat.scrollHeight;  // Auto-scroll to the latest message
+
+            // Save message to cache
+            cachedMessages.push(msg);
+            localStorage.setItem('messages', JSON.stringify(cachedMessages));
+        });
+    </script>
+</body>
+</html>
